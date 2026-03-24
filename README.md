@@ -71,18 +71,86 @@ The server runs in stdio mode and communicates via standard input/output. No web
 
 ### Using the transcribe Tool
 
-The server provides a `transcribe` tool that takes two arguments:
+The server provides a `transcribe` tool with the following arguments:
 
 - `url` (required): The YouTube video URL or ID
 - `language` (optional): Language code for subtitles (default: "en")
+- `offset` (optional): Character offset to start reading from (default: `0`). Only used when `limit > 0`.
+- `limit` (optional): Max characters per chunk when paginating (default: `0` = return full transcript as multiple content items)
 
-The tool returns a JSON object containing:
+#### Default Behavior (limit=0)
 
-- `video_id`: YouTube video identifier
-- `title`: Video title
-- `channel`: Channel/uploader name
-- `date_posted`: Upload date in YYYYMMDD format
-- `transcript`: Full transcript text
+By default, the tool returns the **full transcript in a single call** as multiple content items:
+
+- **Item 1**: JSON with video metadata (`video_id`, `title`, `channel`, `date_posted`, `transcript_length`)
+- **Item 2+**: Plain-text transcript chunks (~50,000 characters each, aligned to sentence boundaries)
+
+No pagination is required — the agent receives everything at once.
+
+#### Paginated Behavior (limit > 0)
+
+When `limit` is set, the tool returns a single JSON dict with one transcript chunk and pagination fields. Use this if you need fine-grained control over chunk size.
+
+When `limit > 0`, additional pagination fields are included:
+
+- `transcript_length`: Total character count of the full transcript
+- `transcript_offset`: Suggested offset for the next chunk (aligned to a sentence boundary)
+- `transcript_remaining`: Characters remaining after this chunk
+
+### Using the flush_cache Tool
+
+The `flush_cache` tool deletes all cached transcript files from the local cache. Call this when you are finished reading a transcript to free disk space.
+
+Cache files also expire automatically after 1 hour and are cleaned up on server startup, so calling `flush_cache` is optional but recommended.
+
+```
+# After you finish paginating through a transcript:
+flush_cache()
+# Returns: {"deleted": 1}
+```
+
+### Caching
+
+Transcripts are cached locally after the first download. Subsequent paginated calls for the same `(url, language)` pair serve from the cache file — no additional requests are made to YouTube. This prevents unnecessary strain on YouTube's servers and avoids rate-limiting or IP bans.
+
+Cache files are stored in the system temp directory under `youtube_transcript_cache/` and expire after 1 hour.
+
+### Reading Long Transcripts
+
+By default, the tool returns the full transcript as multiple content items in a single call. Simply call:
+
+```
+transcribe(url="https://youtube.com/watch?v=VIDEO_ID")
+```
+
+You will receive:
+- Item 1: JSON metadata (`{"video_id": "...", "title": "...", "channel": "...", "date_posted": "...", "transcript_length": 45000}`)
+- Item 2: First ~50,000 characters of transcript (plain text, sentence-aligned)
+- Item 3: Next ~50,000 characters
+- ...and so on until the full transcript is delivered
+
+No pagination is needed. Call `flush_cache()` when finished.
+
+#### Manual Pagination (limit > 0)
+
+For fine-grained control, use `offset` and `limit` to retrieve the transcript in smaller chunks:
+
+```
+# First call: get the first ~1900 characters
+transcribe(url="https://youtube.com/watch?v=LONG_VIDEO", limit=1900)
+
+# Response includes:
+#   "transcript": "Today's number 40..."
+#   "transcript_length": 45000
+#   "transcript_offset": 1893
+#   "transcript_remaining": 43107
+
+# Second call: use transcript_offset as the next offset
+transcribe(url="https://youtube.com/watch?v=LONG_VIDEO", offset=1893, limit=1900)
+
+# Continue until transcript_remaining == 0, then:
+flush_cache()
+```
 
 ### Example via MCP Client (Python)
 
@@ -194,7 +262,27 @@ This workflow ensures you capture both the video metadata and processed insights
 
 ## Response Format
 
-The `transcribe` tool returns a JSON object with the following structure:
+### Default (limit=0): Multiple Content Items
+
+The tool returns multiple content items in a single call:
+
+**Item 1** — Metadata (JSON):
+```json
+{
+  "video_id": "dQw4w9WgXcQ",
+  "title": "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)",
+  "channel": "Rick Astley",
+  "date_posted": "20091025",
+  "transcript_length": 12345
+}
+```
+
+**Item 2+** — Plain-text transcript chunks (~50K chars each, sentence-aligned):
+```
+We're no strangers to love. You know the rules and so do I...
+```
+
+### Paginated (limit > 0): Single JSON Object
 
 ```json
 {
@@ -202,7 +290,10 @@ The `transcribe` tool returns a JSON object with the following structure:
   "title": "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)",
   "channel": "Rick Astley",
   "date_posted": "20091025",
-  "transcript": "We're no strangers to love. You know the rules and so do I..."
+  "transcript": "We're no strangers to love. You know the rules and so do I...",
+  "transcript_length": 45000,
+  "transcript_offset": 1893,
+  "transcript_remaining": 43107
 }
 ```
 
@@ -212,7 +303,10 @@ The `transcribe` tool returns a JSON object with the following structure:
 - **title**: Full video title as shown on YouTube
 - **channel**: Name of the channel or uploader
 - **date_posted**: Upload date in YYYYMMDD format (e.g., "20091025" = October 25, 2009)
-- **transcript**: Complete transcript text with subtitle segments joined by spaces
+- **transcript_length**: Total character count of the full transcript
+- **transcript** *(paginated only)*: Chunk of transcript text
+- **transcript_offset** *(paginated only)*: Suggested offset for the next chunk
+- **transcript_remaining** *(paginated only)*: Characters remaining after this chunk
 
 ### Notes on Date Format
 
