@@ -1,3 +1,4 @@
 .git
 .ClineData
 __pycache__
+*.egg-info

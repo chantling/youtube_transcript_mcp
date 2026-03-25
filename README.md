@@ -25,10 +25,26 @@ A Model Context Protocol (MCP) server for extracting transcripts and metadata fr
 
 ```bash
 # Clone the repository
-cd YTTranscript-YT-DLP-MCP
+cd YoutubeTranscriptYT-DLP
 
-# Install the package
-pip install -e .
+# Install dependencies
+pip install yt-dlp srt mcp
+```
+
+**Note:** This package uses a wrapper script approach for easy integration. The `youtube_transcript_mcp.py` file in the parent directory handles importing the package and running the MCP server.
+
+### Direct Import (for development)
+
+If you want to import and use the functions directly in your Python code:
+
+```python
+import sys
+import os
+
+# Add the package directory to Python path
+sys.path.insert(0, r'D:\Programs\AI\!MCPServers!\YoutubeTranscriptYT-DLP\youtube_transcript_mcp')
+
+from youtube_transcript_mcp import extract_youtube_transcript, transcribe
 ```
 
 Or install dependencies directly:
@@ -43,11 +59,26 @@ pip install yt-dlp srt mcp
 
 Add this configuration to your Cline MCP settings (usually in `~/.config/claude/mcp.json` or equivalent):
 
+**Option 1: Using the wrapper script (recommended)**
 ```json
 "youtube-transcript-mcp": {
   "disabled": false,
   "timeout": 60,
-  "type": "stdio",
+  "command": "C:\\Users\\John\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+  "args": [
+    "D:\\Programs\\AI\\!MCPServers\\!YoutubeTranscriptYT-DLP\\youtube_transcript_mcp.py"
+  ],
+  "env": {
+    "FFMPEG_LOCATION": "C:\\Users\\John\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.0.1-full_build\\bin\\ffmpeg.exe"
+  }
+}
+```
+
+**Option 2: Using package module (requires full package installation)**
+```json
+"youtube-transcript-mcp": {
+  "disabled": false,
+  "timeout": 60,
   "command": "python",
   "args": [
     "-m",
@@ -63,6 +94,12 @@ Replace `{Path to FFMPEG}` with the actual path to your ffmpeg installation (e.g
 
 ### Starting the Server
 
+**Using the wrapper script:**
+```bash
+python youtube_transcript_mcp.py
+```
+
+**Using the package module (if installed):**
 ```bash
 python -m youtube_transcript_mcp
 ```
@@ -317,6 +354,20 @@ from datetime import datetime
 date_posted = "20091025"
 readable_date = datetime.strptime(date_posted, "%Y%m%d").strftime("%B %d, %Y")
 # Output: "October 25, 2009"
+```
+
+## Moving the Package
+
+If you move the `youtube_transcript_mcp` folder to a new location, the wrapper script `youtube_transcript_mcp.py` will automatically work because it uses a relative path. Simply update the path in your MCP configuration to point to the new location of the wrapper script.
+
+Example configuration after moving the folder:
+```json
+"youtube-transcript-mcp": {
+  "command": "C:\\Users\\John\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+  "args": [
+    "D:\\New\\Path\\To\\youtube_transcript_mcp.py"  # Update this path
+  ]
+}
 ```
 
 ## API Considerations
