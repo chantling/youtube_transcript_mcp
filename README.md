@@ -24,34 +24,23 @@ A Model Context Protocol (MCP) server for extracting transcripts and metadata fr
 ### Install the Server
 
 ```bash
-# Clone the repository
-cd YoutubeTranscriptYT-DLP
-
-# Install dependencies
-pip install yt-dlp srt mcp
+# From the project root (YoutubeTranscriptYT-DLP/), install as an editable package:
+pip install -e .
 ```
 
-**Note:** This package uses a wrapper script approach for easy integration. The `youtube_transcript_mcp.py` file in the parent directory handles importing the package and running the MCP server.
+This registers `youtube_transcript_mcp` as a Python module, allowing you to run it with `python -m youtube_transcript_mcp` from any directory.
+
+All dependencies (`yt-dlp`, `srt`, `mcp`) are installed automatically.
 
 ### Direct Import (for development)
 
 If you want to import and use the functions directly in your Python code:
 
 ```python
-import sys
-import os
-
-# Add the package directory to Python path
-sys.path.insert(0, r'D:\Programs\AI\!MCPServers!\YoutubeTranscriptYT-DLP\youtube_transcript_mcp')
-
 from youtube_transcript_mcp import extract_youtube_transcript, transcribe
 ```
 
-Or install dependencies directly:
-
-```bash
-pip install yt-dlp srt mcp
-```
+The editable install makes the package importable without manual `sys.path` manipulation.
 
 ## Usage
 
@@ -59,22 +48,10 @@ pip install yt-dlp srt mcp
 
 Add this configuration to your Cline MCP settings (usually in `~/.config/claude/mcp.json` or equivalent):
 
-**Option 1: Using the wrapper script (recommended)**
-```json
-"youtube-transcript-mcp": {
-  "disabled": false,
-  "timeout": 60,
-  "command": "C:\\Users\\John\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
-  "args": [
-    "D:\\Programs\\AI\\!MCPServers\\!YoutubeTranscriptYT-DLP\\youtube_transcript_mcp.py"
-  ],
-  "env": {
-    "FFMPEG_LOCATION": "C:\\Users\\John\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.0.1-full_build\\bin\\ffmpeg.exe"
-  }
-}
-```
+**Option 1: Using the editable install (recommended)**
 
-**Option 2: Using package module (requires full package installation)**
+After running `pip install -e .` from the project root, the module is available via `-m`:
+
 ```json
 "youtube-transcript-mcp": {
   "disabled": false,
@@ -90,16 +67,30 @@ Add this configuration to your Cline MCP settings (usually in `~/.config/claude/
 }
 ```
 
+**Option 2: Using PYTHONPATH (no editable install needed)**
+
+If you don't want to install the package, point `PYTHONPATH` to the project root directory:
+
+```json
+"youtube-transcript-mcp": {
+  "disabled": false,
+  "timeout": 60,
+  "command": "python",
+  "args": [
+    "-m",
+    "youtube_transcript_mcp"
+  ],
+  "env": {
+    "PYTHONPATH": "D:\\Programs\\AI\\!MCPServers!\\YoutubeTranscriptYT-DLP",
+    "FFMPEG_LOCATION": "{Path to FFMPEG}"
+  }
+}
+```
+
 Replace `{Path to FFMPEG}` with the actual path to your ffmpeg installation (e.g., `C:\ffmpeg\bin` on Windows or `/usr/local/bin` on macOS/Linux).
 
 ### Starting the Server
 
-**Using the wrapper script:**
-```bash
-python youtube_transcript_mcp.py
-```
-
-**Using the package module (if installed):**
 ```bash
 python -m youtube_transcript_mcp
 ```
@@ -358,15 +349,23 @@ readable_date = datetime.strptime(date_posted, "%Y%m%d").strftime("%B %d, %Y")
 
 ## Moving the Package
 
-If you move the `youtube_transcript_mcp` folder to a new location, the wrapper script `youtube_transcript_mcp.py` will automatically work because it uses a relative path. Simply update the path in your MCP configuration to point to the new location of the wrapper script.
+If you move the project to a new location, reinstall the editable package from the new project root:
 
-Example configuration after moving the folder:
+```bash
+cd /path/to/new/YoutubeTranscriptYT-DLP
+pip install -e .
+```
+
+Alternatively, update the `PYTHONPATH` in your MCP configuration to point to the new location:
+
 ```json
 "youtube-transcript-mcp": {
-  "command": "C:\\Users\\John\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
-  "args": [
-    "D:\\New\\Path\\To\\youtube_transcript_mcp.py"  # Update this path
-  ]
+  "command": "python",
+  "args": ["-m", "youtube_transcript_mcp"],
+  "env": {
+    "PYTHONPATH": "D:\\New\\Path\\To\\YoutubeTranscriptYT-DLP",
+    "FFMPEG_LOCATION": "{Path to FFMPEG}"
+  }
 }
 ```
 
