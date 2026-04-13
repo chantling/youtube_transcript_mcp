@@ -4,6 +4,8 @@
 import hashlib
 import json
 import os
+import subprocess
+import sys
 import time
 from copy import deepcopy
 from pathlib import Path
@@ -579,8 +581,33 @@ async def flush_cache() -> dict:
     return {"deleted": deleted}
 
 
+def update_yt_dlp() -> None:
+    """
+    Update yt-dlp to the latest version on server startup.
+    
+    This ensures the MCP server always uses the most recent version of yt-dlp,
+    which is important for compatibility with YouTube's frequent changes.
+    """
+    try:
+        print("Updating yt-dlp to the latest version...", file=sys.stderr)
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-U", "--pre", "yt-dlp[default]"],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        print("yt-dlp updated successfully.", file=sys.stderr)
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: Failed to update yt-dlp: {e}", file=sys.stderr)
+        print(f"stderr: {e.stderr}", file=sys.stderr)
+        # Continue anyway - the server may still work with the existing version
+
+
 def main():
     """Run MCP server"""
+    # Update yt-dlp to latest version on startup
+    update_yt_dlp()
+    
     # Clean stale cache files on startup in case a previous agent did not
     # call flush_cache or crashed mid-session.
     clean_cache()
