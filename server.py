@@ -583,23 +583,41 @@ async def flush_cache() -> dict:
 
 def update_yt_dlp() -> None:
     """
-    Update yt-dlp to the latest version on server startup.
+    Update yt-dlp to the latest version on server startup (optional).
     
-    This ensures the MCP server always uses the most recent version of yt-dlp,
-    which is important for compatibility with YouTube's frequent changes.
+    This function is only called if the MCP_AUTO_UPDATE_YT_DLP environment
+    variable is set to 'true' or '1'. By default, auto-update is disabled
+    to prevent initialization timeouts.
+    
+    Manual updates can be performed by running:
+    pip install -U --pre yt-dlp[default]
+    
+    This ensures compatibility with YouTube's frequent changes when needed.
     """
+    # Only auto-update if explicitly enabled via environment variable
+    auto_update = os.getenv("MCP_AUTO_UPDATE_YT_DLP", "").lower() in ("true", "1", "yes")
+    
+    if not auto_update:
+        print("Skipping yt-dlp auto-update (set MCP_AUTO_UPDATE_YT_DLP=true to enable)", file=sys.stderr)
+        return
+    
     try:
         print("Updating yt-dlp to the latest version...", file=sys.stderr)
+        # Run update with a timeout to prevent hanging
         result = subprocess.run(
             [sys.executable, "-m", "pip", "install", "-U", "--pre", "yt-dlp[default]"],
             check=True,
             capture_output=True,
-            text=True
+            text=True,
+            timeout=60  # 60 second timeout for the update process
         )
         print("yt-dlp updated successfully.", file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        print("Warning: yt-dlp update timed out, continuing with current version", file=sys.stderr)
     except subprocess.CalledProcessError as e:
         print(f"Warning: Failed to update yt-dlp: {e}", file=sys.stderr)
-        print(f"stderr: {e.stderr}", file=sys.stderr)
+        if e.stderr:
+            print(f"stderr: {e.stderr}", file=sys.stderr)
         # Continue anyway - the server may still work with the existing version
 
 
