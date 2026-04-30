@@ -39,9 +39,9 @@ def _cache_dir() -> Path:
     return d
 
 
-def _cache_key(url: str, language: str) -> str:
-    """Build a deterministic cache filename from (url, language)."""
-    raw = f"{url}|{language}".encode("utf-8")
+def _cache_key(url: str, language: str, timestamps: bool = False) -> str:
+    """Build a deterministic cache filename from (url, language, timestamps)."""
+    raw = f"{url}|{language}|{timestamps}".encode("utf-8")
     return hashlib.sha256(raw).hexdigest() + ".json"
 
 
@@ -343,7 +343,8 @@ def find_sentence_boundary(text: str, target_pos: int, fallback_window: int = 20
 
 
 def extract_youtube_transcript(
-    url: str, language: str = "en", offset: int = 0, limit: int = 0
+    url: str, language: str = "en", offset: int = 0, limit: int = 0,
+    timestamps: bool = False,
 ) -> dict:
     """
     Extract transcript and metadata from a YouTube video URL.
@@ -358,6 +359,8 @@ def extract_youtube_transcript(
         offset: Character offset to start reading from (default: 0)
         limit: Max characters to return. 0 = return full transcript from
                offset (default: 0)
+        timestamps: Include [hh:mm:ss] timestamps in the transcript text
+                    (default: False)
 
     Returns:
         Dictionary containing video metadata and transcript:
@@ -380,7 +383,7 @@ def extract_youtube_transcript(
     if not url or not isinstance(url, str):
         raise ValueError("Invalid YouTube URL provided")
 
-    cache_file = _cache_dir() / _cache_key(url, language)
+    cache_file = _cache_dir() / _cache_key(url, language, timestamps)
 
     # Try cache first
     cached = _load_from_cache(cache_file)
@@ -388,7 +391,7 @@ def extract_youtube_transcript(
         metadata, full_transcript = cached
     else:
         # Cache miss — download from YouTube
-        metadata, full_transcript = _download_transcript(url, language)
+        metadata, full_transcript = _download_transcript(url, language, timestamps)
         _save_to_cache(cache_file, metadata, full_transcript)
 
     transcript_length = len(full_transcript)
@@ -421,11 +424,24 @@ def extract_youtube_transcript(
     return result
 
 
-def _download_transcript(url: str, language: str) -> tuple[dict, str]:
+def _format_srt_timestamp(td) -> str:
+    """Format a timedelta as hh:mm:ss."""
+    total_secs = int(td.total_seconds())
+    hours, remainder = divmod(total_secs, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def _download_transcript(url: str, language: str, timestamps: bool = False) -> tuple[dict, str]:
     """
     Download transcript and metadata from YouTube (no caching).
 
     This is the slow path — called only on cache miss.
+
+    Args:
+        url: YouTube video URL or ID
+        language: Language code for subtitles
+        timestamps: If True, prepend [hh:mm:ss] timestamps to each subtitle
 
     Returns:
         (metadata, full_transcript) tuple.
@@ -470,7 +486,13 @@ def _download_transcript(url: str, language: str) -> tuple[dict, str]:
         subtitles = deduplicate_subtitles(subtitles)
 
         # Build transcript by joining all subtitle text
-        full_transcript = " ".join([s.content.replace("\n", " ") for s in subtitles])
+        if timestamps:
+            full_transcript = " ".join([
+                f"[{_format_srt_timestamp(s.start)}] {s.content.replace(chr(10), ' ')}"
+                for s in subtitles
+            ])
+        else:
+            full_transcript = " ".join([s.content.replace("\n", " ") for s in subtitles])
 
         return metadata, full_transcript
 
@@ -486,6 +508,7 @@ async def transcribe(
     language: str = "en",
     offset: int = 0,
     limit: int = 0,
+    timestamps: bool = False,
 ) -> dict | list[TextContent]:
     """
     Extract transcript and metadata from a YouTube video.
@@ -514,6 +537,7 @@ async def transcribe(
         language (string, optional): Language code for subtitles. Default: "en"
         offset (integer, optional): Character offset to start reading from. Default: 0. Only used when limit > 0.
         limit (integer, optional): Max characters per chunk when paginating. Default: 0 (returns full transcript as multiple content items). Set > 0 for single-chunk JSON response with pagination fields.
+        timestamps (boolean, optional): Include [hh:mm:ss] timestamps in the transcript text. Default: false.
 
     Returns:
         When limit == 0 (default):
@@ -546,15 +570,15 @@ async def transcribe(
     try:
         # When limit > 0, use the original dict-based paginated response
         if limit > 0:
-            return extract_youtube_transcript(url, language, offset, limit)
+            return extract_youtube_transcript(url, language, offset, limit, timestamps)
 
         # Default: download/cache, then return multiple TextContent items
-        cache_file = _cache_dir() / _cache_key(url, language)
+        cache_file = _cache_dir() / _cache_key(url, language, timestamps)
         cached = _load_from_cache(cache_file)
         if cached is not None:
             metadata, full_transcript = cached
         else:
-            metadata, full_transcript = _download_transcript(url, language)
+            metadata, full_transcript = _download_transcript(url, language, timestamps)
             _save_to_cache(cache_file, metadata, full_transcript)
 
         return _split_into_text_content(metadata, full_transcript)
