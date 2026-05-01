@@ -476,6 +476,55 @@ from datetime import datetime
 readable_date = datetime.strptime(date_posted, "%Y%m%d").strftime("%B %d, %Y")
 ```
 
+## Cookie & JS Runtime Configuration
+
+YouTube requires authentication and JavaScript challenge solving. Without these, yt-dlp returns errors like:
+
+- `"Sign in to confirm you're not a bot. Use --cookies-from-browser or --cookies for the authentication."`
+
+### config.yaml
+
+Edit `config.yaml` in the package directory (or set `MCP_CONFIG_PATH` to a custom path):
+
+```yaml
+cookies_from_browser: "firefox"
+# cookies_file: "./cookies.txt"
+js_runtime: "node"
+```
+
+### Available Browsers
+
+`chrome`, `firefox`, `edge`, `opera`, `vivaldi`, `brave`, `safari`
+
+**Windows note:** Chrome and Edge may fail with a DPAPI decryption error. Firefox works reliably. If Chrome/Edge fail, export cookies to a `cookies.txt` file using a browser extension (e.g. "Get cookies.txt LOCALLY") and use `cookies_file` instead.
+
+### Available JS Runtimes
+
+| Runtime | Auto-detected? | Notes |
+|---------|---------------|-------|
+| `deno` | Yes | Recommended by yt-dlp |
+| `node` | No | Must be explicitly enabled |
+| `bun` | No | Must be explicitly enabled |
+| `quickjs` | No | Must be explicitly enabled |
+
+### Environment Variable Overrides
+
+Each config key can be overridden via environment variables:
+
+| Config Key | Env Variable |
+|------------|-------------|
+| `cookies_from_browser` | `MCP_COOKIES_FROM_BROWSER` |
+| `cookies_file` | `MCP_COOKIES_FILE` |
+| `js_runtime` | `MCP_JS_RUNTIME` |
+
+### Companion Package
+
+The JS challenge solver requires `yt-dlp-ejs`:
+
+```bash
+pip install "yt-dlp[default]"
+```
+
 ## License
 
 This project is licensed under the Unlicense. See [LICENSE](LICENSE) for details.

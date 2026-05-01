@@ -1,0 +1,5 @@
+cookies_from_browser: "firefox"
+
+# cookies_file: "./cookies.txt"
+
+js_runtime: "node"
