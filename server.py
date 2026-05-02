@@ -10,13 +10,48 @@ import time
 from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory, gettempdir
-from typing import List
+from typing import Any, List
 
+import yaml
 from mcp.server.fastmcp import FastMCP
 from mcp.types import TextContent
 import srt
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
+
+CONFIG_KEYS = {"cookies_from_browser", "cookies_file", "js_runtime"}
+
+
+def _load_config() -> dict[str, str]:
+    config_path = os.getenv("MCP_CONFIG_PATH", "")
+    if not config_path:
+        config_path = str(Path(__file__).resolve().parent / "config.yaml")
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        data = {}
+    cfg: dict[str, str] = {}
+    for key in CONFIG_KEYS:
+        env_val = os.getenv(f"MCP_{key.upper()}", "")
+        if env_val:
+            cfg[key] = env_val
+        elif data.get(key):
+            cfg[key] = str(data[key])
+    return cfg
+
+
+def _apply_ytdlp_opts(base_opts: dict[str, Any], config: dict[str, str]) -> dict[str, Any]:
+    if config.get("cookies_from_browser"):
+        base_opts["cookiesfrombrowser"] = (config["cookies_from_browser"],)
+    elif config.get("cookies_file"):
+        base_opts["cookiefile"] = config["cookies_file"]
+    if config.get("js_runtime"):
+        base_opts["js_runtimes"] = {config["js_runtime"]: {}}
+    return base_opts
+
+
+_ytdlp_config = _load_config()
 
 # ---------------------------------------------------------------------------
 # Cache configuration
@@ -454,6 +489,7 @@ def _download_transcript(url: str, language: str, timestamps: bool = False) -> t
         opts = deepcopy(default_opts)
         opts["outtmpl"] = {"default": str(path / "res")}
         opts["subtitleslangs"] = [language]
+        _apply_ytdlp_opts(opts, _ytdlp_config)
 
         # Extract metadata first
         ydl = YoutubeDL(opts)
