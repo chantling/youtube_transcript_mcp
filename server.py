@@ -473,6 +473,13 @@ def _download_transcript(url: str, language: str, timestamps: bool = False) -> t
 
     This is the slow path — called only on cache miss.
 
+    First attempts extraction with the configured options (cookies from
+    browser, JS runtime). If that yields no subtitles — which happens for
+    some videos because YouTube's web client requires a PO token for
+    subtitle downloads when cookies are used — the download is retried
+    once with bare default options (no cookies), which uses player
+    clients that do not require a PO token.
+
     Args:
         url: YouTube video URL or ID
         language: Language code for subtitles
@@ -484,12 +491,42 @@ def _download_transcript(url: str, language: str, timestamps: bool = False) -> t
     Raises:
         DownloadError: If transcript cannot be downloaded.
     """
+    last_error: Exception | None = None
+    for use_config in (True, False):
+        try:
+            return _download_transcript_attempt(url, language, timestamps, use_config)
+        except DownloadError as e:
+            last_error = e
+    assert last_error is not None
+    raise last_error
+
+
+def _download_transcript_attempt(
+    url: str, language: str, timestamps: bool, use_config: bool,
+) -> tuple[dict, str]:
+    """
+    Perform a single subtitle download attempt.
+
+    Args:
+        url: YouTube video URL or ID
+        language: Language code for subtitles
+        timestamps: If True, prepend [hh:mm:ss] timestamps to each subtitle
+        use_config: If True, apply cookies/JS-runtime options from the
+            server config; if False, use bare yt-dlp defaults.
+
+    Returns:
+        (metadata, full_transcript) tuple.
+
+    Raises:
+        DownloadError: If no subtitles could be downloaded.
+    """
     with TemporaryDirectory() as temp_dir:
         path = Path(temp_dir)
         opts = deepcopy(default_opts)
         opts["outtmpl"] = {"default": str(path / "res")}
         opts["subtitleslangs"] = [language]
-        _apply_ytdlp_opts(opts, _ytdlp_config)
+        if use_config:
+            _apply_ytdlp_opts(opts, _ytdlp_config)
 
         # Extract metadata first
         ydl = YoutubeDL(opts)
