@@ -19,7 +19,7 @@ import srt
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
-CONFIG_KEYS = {"cookies_from_browser", "cookies_file", "js_runtime"}
+CONFIG_KEYS = {"cookies_from_browser", "cookies_file", "js_runtime", "pot_server_home"}
 
 
 def _load_config() -> dict[str, str]:
@@ -41,6 +41,26 @@ def _load_config() -> dict[str, str]:
     return cfg
 
 
+def _detect_pot_server_home(config: dict[str, str]) -> str | None:
+    """
+    Locate the bgutil-ytdlp-pot-provider server directory.
+
+    Uses the pot_server_home config value if set; otherwise checks for a
+    bgutil-ytdlp-pot-provider checkout next to this project (i.e.
+    <project_root>/bgutil-ytdlp-pot-provider/server). Returns None when no
+    provider with a built generate_once.js script is found.
+    """
+    candidates = []
+    if config.get("pot_server_home"):
+        candidates.append(Path(config["pot_server_home"]))
+    project_root = Path(__file__).resolve().parent.parent
+    candidates.append(project_root / "bgutil-ytdlp-pot-provider" / "server")
+    for candidate in candidates:
+        if (candidate / "build" / "generate_once.js").is_file():
+            return str(candidate)
+    return None
+
+
 def _apply_ytdlp_opts(base_opts: dict[str, Any], config: dict[str, str]) -> dict[str, Any]:
     if config.get("cookies_from_browser"):
         base_opts["cookiesfrombrowser"] = (config["cookies_from_browser"],)
@@ -48,6 +68,11 @@ def _apply_ytdlp_opts(base_opts: dict[str, Any], config: dict[str, str]) -> dict
         base_opts["cookiefile"] = config["cookies_file"]
     if config.get("js_runtime"):
         base_opts["js_runtimes"] = {config["js_runtime"]: {}}
+    pot_server_home = _detect_pot_server_home(config)
+    if pot_server_home:
+        base_opts.setdefault("extractor_args", {})["youtubepot-bgutilscript"] = {
+            "server_home": [pot_server_home],
+        }
     return base_opts
 
 

@@ -3,3 +3,7 @@ cookies_from_browser: "firefox"
 # cookies_file: "./cookies.txt"
 
 js_runtime: "node"
+
+# PO token provider (bgutil-ytdlp-pot-provider). Auto-detected at
+# ../bgutil-ytdlp-pot-provider/server if present; override with an absolute path:
+# pot_server_home: "D:\path\to\bgutil-ytdlp-pot-provider\server"
