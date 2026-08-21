@@ -4,6 +4,7 @@ cookies_from_browser: "firefox"
 
 js_runtime: "node"
 
-# PO token provider (bgutil-ytdlp-pot-provider). Auto-detected at
-# ../bgutil-ytdlp-pot-provider/server if present; override with an absolute path:
+# PO token provider (bgutil-ytdlp-pot-provider HTTP server on 127.0.0.1:4416).
+# Started automatically at server startup; auto-detected at
+# ../bgutil-ytdlp-pot-provider/server. Override with an absolute path:
 # pot_server_home: "D:\path\to\bgutil-ytdlp-pot-provider\server"

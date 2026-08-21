@@ -6,7 +6,9 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
+import urllib.request
 from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory, gettempdir
@@ -48,7 +50,7 @@ def _detect_pot_server_home(config: dict[str, str]) -> str | None:
     Uses the pot_server_home config value if set; otherwise checks for a
     bgutil-ytdlp-pot-provider checkout next to this project (i.e.
     <project_root>/bgutil-ytdlp-pot-provider/server). Returns None when no
-    provider with a built generate_once.js script is found.
+    provider with a built main.js HTTP server is found.
     """
     candidates = []
     if config.get("pot_server_home"):
@@ -56,7 +58,7 @@ def _detect_pot_server_home(config: dict[str, str]) -> str | None:
     project_root = Path(__file__).resolve().parent.parent
     candidates.append(project_root / "bgutil-ytdlp-pot-provider" / "server")
     for candidate in candidates:
-        if (candidate / "build" / "generate_once.js").is_file():
+        if (candidate / "build" / "main.js").is_file():
             return str(candidate)
     return None
 
@@ -68,15 +70,97 @@ def _apply_ytdlp_opts(base_opts: dict[str, Any], config: dict[str, str]) -> dict
         base_opts["cookiefile"] = config["cookies_file"]
     if config.get("js_runtime"):
         base_opts["js_runtimes"] = {config["js_runtime"]: {}}
-    pot_server_home = _detect_pot_server_home(config)
-    if pot_server_home:
-        base_opts.setdefault("extractor_args", {})["youtubepot-bgutilscript"] = {
-            "server_home": [pot_server_home],
-        }
+    # The bgutil PO token provider runs as a local HTTP server on
+    # 127.0.0.1:4416 (see _ensure_pot_server_started). The yt-dlp plugin's
+    # default base_url matches, so no extractor_args are needed here. The
+    # script-mode provider is deliberately NOT configured: its 15s
+    # availability-check timeout can crash extraction when node cold-starts
+    # slowly (e.g. after the OS file cache has been evicted overnight).
     return base_opts
 
 
 _ytdlp_config = _load_config()
+
+# ---------------------------------------------------------------------------
+# bgutil PO token HTTP server management
+# ---------------------------------------------------------------------------
+
+POT_BASE_URL = "http://127.0.0.1:4416"
+POT_STARTUP_TIMEOUT = 60.0  # seconds to wait for a cold node start
+
+# Handle to the background thread that starts the POT HTTP server.
+# Set in main(); joined by the first transcript request so a cold node
+# start (~30s after overnight file-cache eviction) completes before
+# extraction instead of racing it.
+_pot_server_thread: threading.Thread | None = None
+
+
+def _ping_pot_server(timeout: float = 2.0) -> bool:
+    """Return True if the bgutil POT HTTP server answers /ping."""
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(f"{POT_BASE_URL}/ping", timeout=timeout) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def _ensure_pot_server_started() -> bool:
+    """
+    Make sure the bgutil POT HTTP server is running on 127.0.0.1:4416.
+
+    Reuses an already-running instance (possibly left over from a previous
+    server session) so the warm process survives MCP server restarts. If
+    none is running, spawns `node build/main.js` detached from this
+    process and waits for it to answer /ping.
+
+    Returns True if the server is (or becomes) reachable.
+    """
+    if _ping_pot_server():
+        print("[pot] bgutil HTTP server already running, reusing", file=sys.stderr)
+        return True
+
+    server_home = _detect_pot_server_home(_ytdlp_config)
+    if not server_home:
+        print("[pot] bgutil provider not found, PO tokens unavailable", file=sys.stderr)
+        return False
+    main_js = Path(server_home) / "build" / "main.js"
+
+    print(f"[pot] starting bgutil HTTP server: node {main_js}", file=sys.stderr)
+    creationflags = subprocess.DETACHED_PROCESS if os.name == "nt" else 0
+    try:
+        proc = subprocess.Popen(
+            ["node", str(main_js)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+        )
+    except OSError as e:
+        print(f"[pot] failed to start bgutil HTTP server: {e}", file=sys.stderr)
+        return False
+
+    deadline = time.time() + POT_STARTUP_TIMEOUT
+    while time.time() < deadline:
+        if _ping_pot_server():
+            print("[pot] bgutil HTTP server is up", file=sys.stderr)
+            return True
+        if proc.poll() is not None:
+            # Process exited — most likely the port is already bound by
+            # another instance that is still warming up. Give it one
+            # last generous ping.
+            return _ping_pot_server(timeout=10.0)
+        time.sleep(1.0)
+
+    print("[pot] bgutil HTTP server did not come up in time", file=sys.stderr)
+    return False
+
+
+def _wait_for_pot_server() -> None:
+    """Block until the POT server startup thread finishes (best effort)."""
+    thread = _pot_server_thread
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=POT_STARTUP_TIMEOUT + 5.0)
 
 # ---------------------------------------------------------------------------
 # Cache configuration
@@ -517,6 +601,9 @@ def _download_transcript(url: str, language: str, timestamps: bool = False) -> t
         DownloadError: If transcript cannot be downloaded.
     """
     last_error: Exception | None = None
+    # Wait for the POT HTTP server to become ready before the first
+    # cookie-based attempt, so a cold node start does not race extraction.
+    _wait_for_pot_server()
     for use_config in (True, False):
         try:
             return _download_transcript_attempt(url, language, timestamps, use_config)
@@ -745,12 +832,21 @@ def update_yt_dlp() -> None:
 
 def main():
     """Run MCP server"""
+    global _pot_server_thread
+
     # Update yt-dlp to latest version on startup
     update_yt_dlp()
     
     # Clean stale cache files on startup in case a previous agent did not
     # call flush_cache or crashed mid-session.
     clean_cache()
+
+    # Start (or reuse) the bgutil PO token HTTP server in the background.
+    # The first transcript request waits for it via _wait_for_pot_server().
+    _pot_server_thread = threading.Thread(
+        target=_ensure_pot_server_started, daemon=True)
+    _pot_server_thread.start()
+
     mcp.run(transport="stdio")
 
 
