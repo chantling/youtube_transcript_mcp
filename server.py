@@ -437,7 +437,7 @@ default_opts = {
         {"format": "srt", "key": "FFmpegSubtitlesConvertor", "when": "before_dl"},
     ],
     "quiet": True,
-    "retries": 10,
+    "retries": 3,
     "skip_download": True,
     "writeautomaticsub": True,
 }
@@ -649,7 +649,24 @@ def _download_transcript_attempt(
             "title": info.get("title", ""),
             "channel": info.get("uploader", ""),
             "date_posted": info.get("upload_date", ""),
+            "thumbnail": info.get("thumbnail", ""),
         }
+
+        # Resolve the requested language against actually-available tracks.
+        # YouTube often exposes auto-captions only as region variants
+        # (e.g. "en-US" with no plain "en"), and yt-dlp matches subtitle
+        # languages exactly — so requesting "en" would silently download
+        # nothing and be misreported as "video has no subtitles".
+        available = list((info.get("subtitles") or {}).keys()) + list(
+            (info.get("automatic_captions") or {}).keys()
+        )
+        if language not in available:
+            variant = next(
+                (code for code in available if code.startswith(f"{language}-")), None
+            )
+            if variant is not None:
+                opts["subtitleslangs"] = [variant]
+                ydl.params["subtitleslangs"] = [variant]
 
         # Download subtitles
         ydl.download(url)
@@ -704,9 +721,9 @@ async def transcribe(
     DEFAULT BEHAVIOR (limit=0): Returns the full transcript as multiple
     content items in a single tool call. The first item is a JSON dict
     with video metadata (video_id, title, channel, date_posted,
-    transcript_length). Subsequent items are plain-text transcript
-    chunks aligned to sentence boundaries. You receive everything at
-    once — no pagination required.
+    thumbnail, transcript_length). Subsequent items are plain-text
+    transcript chunks aligned to sentence boundaries. You receive
+    everything at once — no pagination required.
 
     PAGINATED BEHAVIOR (limit > 0): Returns a single JSON dict with
     one transcript chunk and pagination fields (transcript_offset,
@@ -728,13 +745,13 @@ async def transcribe(
         When limit == 0 (default):
             Multiple content items in one call:
             - Item 1: JSON with video_id, title, channel, date_posted,
-                      transcript_length
+                      thumbnail (image URL), transcript_length
             - Item 2+: Plain-text transcript chunks (~50K chars each,
                        aligned to sentence boundaries)
 
         When limit > 0:
             Single JSON dict with:
-            - video_id, title, channel, date_posted
+            - video_id, title, channel, date_posted, thumbnail (image URL)
             - transcript: Chunk of transcript text
             - transcript_length, transcript_offset, transcript_remaining
 
